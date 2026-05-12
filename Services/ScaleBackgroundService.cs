@@ -73,13 +73,33 @@ public class ScaleBackgroundService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var portName = _configuration["ScaleSettings:PortName"] ?? "COM8";
         var baudRate = _configuration.GetValue<int>("ScaleSettings:BaudRate", 9600);
+        string portName = "UNKNOWN";
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
+                var configuredPort = _configuration["ScaleSettings:PortName"] ?? "AUTO";
+                portName = configuredPort;
+
+                if (string.IsNullOrEmpty(configuredPort) || configuredPort.ToUpper() == "AUTO")
+                {
+                    var availablePorts = SerialPort.GetPortNames();
+                    if (availablePorts.Length > 0)
+                    {
+                        // Urutkan port agar COM yang lebih besar (biasanya USB) dipilih
+                        portName = availablePorts.OrderBy(p => p.Length).ThenBy(p => p).Last();
+                        _logger.LogInformation($"🔍 Auto-detect mode: Ditemukan port [{string.Join(", ", availablePorts)}]. Menggunakan {portName}");
+                    }
+                    else
+                    {
+                        _logger.LogWarning("🔍 Auto-detect mode: Tidak ada COM port yang ditemukan! Menunggu 5 detik...");
+                        await Task.Delay(5000, stoppingToken);
+                        continue;
+                    }
+                }
+
                 using var serialPort = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One);
                 serialPort.Handshake = Handshake.XOnXOff;
                 serialPort.ReadTimeout = 2000;
